@@ -579,8 +579,11 @@ We're ready to test our code using the terminal!
 Congratulations, you completed *Auton Computer Vision Tutorial 2: Image Filters*!
 
 2025 - 2026 additional tutorials
+
 Below are some additonal tutorials you can try out.
+
 Each tutorial can count as a project for resume.
+
 Create your own copy and shared it with your lead when finished.
 
 ## Conclusion
