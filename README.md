@@ -586,6 +586,8 @@ Each tutorial can count as a project for your resume.
 
 Create your own copy and share it with your lead when finished.
 
+1) Machine Learning Tutorial
+https://docs.google.com/presentation/d/1Fu9GoJAEqd0XWOKSrV4U_GTe44hLIndhqM23IJ0ToMs/edit?usp=sharing
 ## Conclusion
 
 Congratulations, this concludes your introduction to computer vision!
