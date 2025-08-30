@@ -580,6 +580,10 @@ Congratulations, you completed *Auton Computer Vision Tutorial 2: Image Filters*
 
 2025-2026 additional tutorials
 
+Please read through on how the agile development process work for the computer vision team
+
+https://docs.google.com/document/d/1jQgo1F6HHpCBdUPVVzZShZPO0FAh2D-dkWsnvHOcE5w/edit?usp=sharing
+
 Below are some additional tutorials you can try out.
 
 Each tutorial can count as a project for your resume.
