@@ -592,6 +592,7 @@ https://docs.google.com/presentation/d/1Fu9GoJAEqd0XWOKSrV4U_GTe44hLIndhqM23IJ0T
 
 2) Computer Vision Tutorial
 
+https://docs.google.com/presentation/d/1TcK1n973L2NGImNstsGdaaOLRAXpmAr_PJ3mE0L14BY/edit?usp=sharing
 
 ## Conclusion
 
