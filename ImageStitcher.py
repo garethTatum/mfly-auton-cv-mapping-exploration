@@ -42,7 +42,6 @@ class ImageStitcher:
         equalized = cv2.equalizeHist(blurred)
 
         return equalized
-        pass
 
     # TODO: Implement - Gareth
     def __run_SIFT(self, img):
