@@ -14,6 +14,7 @@ class ImageStitcher:
     def __init__(self):
         """Initialize ImageStitcher class with default values. Contains a composite image (the map)"""
         self.__aerial_map = None
+        self.__sift = cv2.SIFT_Create()
         pass
 
     # TODO: Implement - Gareth
@@ -46,7 +47,10 @@ class ImageStitcher:
     # TODO: Implement - Gareth
     def __run_SIFT(self, img):
         """Runs the SIFT algorithm and returns detected features"""
-        pass
+        keypoints = self.__sift.detect(img, None)
+        keypoints, descriptors = self.__sift.compute(img, keypoints)
+
+        return keypoints, descriptors
 
     # TODO: Implement - John
     def __run_kNN(self, img):
