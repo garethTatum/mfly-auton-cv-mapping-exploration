@@ -1,8 +1,9 @@
 # File for stitching images together to form the aerial map
 # Should include SIFT, kNN, RANSAC code
 # Feel free to implement any helper functions you think are necessary (or don't, most of this could be one funtion tbh)
-import cv2
+import cv2 #type: ignore
 import numpy as np
+from RANSAC import run_RANSAC
 
 class ImageStitcher:
     """
@@ -59,5 +60,5 @@ class ImageStitcher:
 
     # TODO: Implement - Raiana
     def __run_RANSAC(self, img):
-        """Runs RANSAC to estimate homeography and warp image"""
+        warpedImage, H, inliers = run_RANSAC(self.baseImagePoints, self.newImagePoints, img)
         pass
