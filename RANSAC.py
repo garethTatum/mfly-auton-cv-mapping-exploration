@@ -67,41 +67,43 @@ def find_best_inliers_and_homography(baseImagePoints, newImagePoints, maxIterati
         if H is None:
             continue
 
+        # Temporarily commented out due to bugs
         # 3. Project all base image points using this H
-        baseImagePointsHomography = np.hstack([baseImagePoints, np.ones((numberOfMatches, 1))])
+    #     baseImagePointsHomography = np.hstack([baseImagePoints, np.ones((numberOfMatches, 1))])
                 
-        projected = (H @ baseImagePointsHomography.T).T
+    #     projected = (H @ baseImagePointsHomography.T).T
                 
-        projected = projected[:, 0:2] / projected[:, 2:3]
+    #     projected = projected[:, 0:2] / projected[:, 2:3]
         
-        # 4. Compute reprojection error
-        errors = np.linalg.norm(projected - newImagePoints, axis=1)
+    #     # 4. Compute reprojection error
+    #     errors = np.linalg.norm(projected - newImagePoints, axis=1)
         
-        # 5. Identify inliers
-        inliers = errors < threshold
-        num_inliers = np.sum(inliers)
+    #     # 5. Identify inliers
+    #     inliers = errors < threshold
+    #     num_inliers = np.sum(inliers)
 
-        # 6. Update best model if more inliers found
-        if num_inliers > max_inliers:
-            max_inliers = num_inliers
-            best_H = H
-            best_inliers = inliers
+    #     # 6. Update best model if more inliers found
+    #     if num_inliers > max_inliers:
+    #         max_inliers = num_inliers
+    #         best_H = H
+    #         best_inliers = inliers
 
-            # Early stopping if enough inliers found
-            if max_inliers > numberOfMatches * confidence:
-                break
+    #         # Early stopping if enough inliers found
+    #         if max_inliers > numberOfMatches * confidence:
+    #             break
 
-    # 7. Recompute homography using all inliers (refinement step)
-    if ((best_inliers is not None) and (np.sum(best_inliers) >= 4)):
-        best_H, mask = cv2.findHomography(baseImagePoints[best_inliers], newImagePoints[best_inliers], method=0) # DLT
+    # # 7. Recompute homography using all inliers (refinement step)
+    # if ((best_inliers is not None) and (np.sum(best_inliers) >= 4)):
+    #     best_H, mask = cv2.findHomography(baseImagePoints[best_inliers], newImagePoints[best_inliers], method=0) # DLT
 
-    return best_H, best_inliers
+    # return best_H, best_inliers
+    return H
 
 
 def run_RANSAC(baseImagePoints, newImagePoints, img):
 
     # Step 1: Run custom RANSAC to get homography and inlier mask
-    H, inliers = find_best_inliers_and_homography(baseImagePoints, newImagePoints,
+    H = find_best_inliers_and_homography(baseImagePoints, newImagePoints,
                              maxIterations=2000, threshold=5.0, confidence=0.99)
     
     # Step 2: Check if a valid homography was found
@@ -110,8 +112,7 @@ def run_RANSAC(baseImagePoints, newImagePoints, img):
         return None, None, None
 
     # Step 3: Warp the image using the computed homography
-    height, width = img.shape[0:2]
-    warpedImage = cv2.warpPerspective(img, H, (width, height))
+    # Moved to add image - Gareth
     
     # Step 4: Return results
-    return warpedImage, H, inliers
+    return H
