@@ -103,23 +103,24 @@ class ImageStitcher:
     # TODO: Implement - John
     def __run_kNN(self, keypoints1, descriptors1, keypoints2, descriptors2):
     
-        # Initialize Brute-Force matcher
-        bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
+    # Initialize Brute-Force matcher
+    bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
 
-        # Find the 2 best matches for each feature
-        matches = bf.knnMatch(descriptors1, descriptors2, k=2)
+    # Find the 2 best matches for each feature
+    matches = bf.knnMatch(descriptors1, descriptors2, k=2)
 
-        # Apply Lowe’s ratio test
-        good_matches = [m for m, n in matches if m.distance < 0.75 * n.distance]
+    # Apply Lowe’s ratio test
+    good_matches = [m for m, n in matches if m.distance < 0.75 * n.distance]
 
-        if len(good_matches) < 4:
-            return None, None, []
+    if len(good_matches) < 4:
+        return None, None, []
 
-        # Extract matching keypoint coordinates
-        baseImagePoints = np.float32([keypoints1[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-        newImagePoints = np.float32([keypoints2[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+    # Extract matching keypoint coordinates
+    self.baseImagePoints = np.float32([keypoints1[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+    self.newImagePoints = np.float32([keypoints2[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
 
-        return baseImagePoints, newImagePoints, good_matches
+    return base_points, new_points, good_matches
+
 
     # TODO: Implement - Raiana
     def __run_RANSAC(self, baseImagePoints, newImagePoints, img):
