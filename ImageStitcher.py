@@ -12,7 +12,7 @@ class ImageStitcher:
     """
     
     # Define the scaling factor used in preprocessing
-    SCALE_FACTOR = 0.3
+    SCALE_FACTOR = 0.4
     
     # TODO: Implement - Everyone, declare what you need
     def __init__(self):
@@ -46,6 +46,8 @@ class ImageStitcher:
             if H is None:
                 print("[WARNING] Could not find homography for add_image")
                 return
+
+            H = np.linalg.inv(H)
 
             # Create canvas for Aerial Map
             h1, w1 = self.__aerial_map.shape[:2]

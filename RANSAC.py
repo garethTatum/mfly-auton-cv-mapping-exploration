@@ -108,4 +108,4 @@ def run_RANSAC(baseImagePoints, newImagePoints, img):
         return None
 
     # Step 3: Return result
-    return best_Hc
+    return best_H
