@@ -11,6 +11,9 @@ class ImageStitcher:
     using SIFT, kNN, and RANSAC
     """
     
+    # Define the scaling factor used in preprocessing
+    SCALE_FACTOR = 0.3
+    
     # TODO: Implement - Everyone, declare what you need
     def __init__(self):
         """Initialize ImageStitcher class with default values. Contains a composite image (the map)"""
@@ -28,16 +31,28 @@ class ImageStitcher:
         else:
             # Running through preprocessing, SIFT, kNN, and RANSAC
             processed_img = self.__process_image(img)
-            kpB, desB = self.__run_SIFT(self.__aerial_map)
+            kpB, desB = self.__run_SIFT(self.__aerial_map) # Note: aerial_map might be huge, consider resizing it too if this is slow
             kpN, desN = self.__run_SIFT(processed_img)
 
             basePoints, newPoints,_ = self.__run_kNN(kpB, desB, kpN, desN)
+            
+            # FIX 1: Scale points back up to original size
+            if basePoints is not None:
+                basePoints = basePoints * (1.0 / self.SCALE_FACTOR)
+                newPoints = newPoints * (1.0 / self.SCALE_FACTOR)
 
             H = self.__run_RANSAC(basePoints, newPoints, processed_img)
 
+            if H is None:
+                print("[WARNING] Could not find homography for add_image")
+                return
+
             # Create canvas for Aerial Map
             h1, w1 = self.__aerial_map.shape[:2]
-            h2, w2 = processed_img.shape[:2]
+            
+            # FIX 2: Use ORIGINAL image dimensions, not processed_img
+            h2, w2 = img.shape[:2] 
+            
             corners2 = np.float32([[0,0],[0,h2],[w2,h2],[w2,0]]).reshape(-1,1,2)
             warped_corners = cv2.perspectiveTransform(corners2, H)
             all_corners = np.concatenate((np.float32([[0,0],[0,h1],[w1,h1],[w1,0]]).reshape(-1,1,2),
@@ -47,66 +62,59 @@ class ImageStitcher:
 
             trans = [-xmin, -ymin]
             H_trans = np.array([[1,0,trans[0]],[0,1,trans[1]],[0,0,1]])
-            size = (xmax-xmin, ymax-ymin)
-
-            # Perform image warp (originally in RANSAC)
+            
+            # Perform image warp
             warp_width = xmax - xmin
             warp_height = ymax - ymin
 
             warped_img = cv2.warpPerspective(img, H_trans.dot(H), (warp_width, warp_height))
             
-            shifted_base = np.zeros((ymax-ymin, xmax-xmin, 3), dtype=self.__aerial_map.dtype)
+            shifted_base = np.zeros((warp_height, warp_width, 3), dtype=self.__aerial_map.dtype)
             shifted_base[trans[1]:h1+trans[1], trans[0]:w1+trans[0]] = self.__aerial_map
 
-            # Blend Images
+            # Create masks for blending
             mask_new = cv2.cvtColor(warped_img, cv2.COLOR_BGR2GRAY)
             _, mask_new = cv2.threshold(mask_new, 1, 255, cv2.THRESH_BINARY)
-
             
-            # Double-check mask matches the canvas
-            if mask_new.shape[:2] != shifted_base.shape[:2]:
-                mask_new = cv2.resize(mask_new, (shifted_base.shape[1], shifted_base.shape[0]))
+            # Use Laplacian Blending
+            self.__aerial_map = self.__laplacian_blend(shifted_base, warped_img, mask_new)
 
-            result = shifted_base.copy()
-            result[mask_new == 255] = warped_img[mask_new == 255]
-
-            self.__aerial_map = result
 
     def stitch_images(self, imgs):
         keypoints = []
         descriptors = []
 
+        # 1. Feature Detection
         for img in imgs:
             processed_img = self.__process_image(img)
             kp, desc = self.__run_SIFT(processed_img)
-
             keypoints.append(kp)
             descriptors.append(desc)
 
         pairwise_H = {}
-        print("[INFO] Computing Homogrophy")
+        print("[INFO] Computing Homographies")
+        
+        # 2. Compute Pairwise Homographies
         for i in range(len(imgs)-1):
-            print("[INFO] Running kNN")
-            basepts,newpts,matches = self.__run_kNN(keypoints[i], descriptors[i], keypoints[i+1], descriptors[i+1])
-            print("[INFO] Computing Homogrophy")
-            H = self.__compute_homography(keypoints[i], keypoints[i+1], matches)
+            print(f"[INFO] Matching Image {i} to {i+1}")
+            basepts, newpts, matches = self.__run_kNN(keypoints[i], descriptors[i], keypoints[i+1], descriptors[i+1])
+            
+            # FIX 3: Pass the scale ratio to compute_homography
+            H = self.__compute_homography(keypoints[i], keypoints[i+1], matches, ratio=(1.0/self.SCALE_FACTOR))
 
             if H is not None:
-                pairwise_H[(i, i + 1)] = H
+                # Store Inverse to map backwards to the first image
+                pairwise_H[(i, i + 1)] = np.linalg.inv(H)
             else:
                 raise RuntimeError(f"Insufficient matches between {i} and {i+1}")
             
-        # -----------------------------------
-        # Build global homography chain
-        # -----------------------------------
+        # 3. Build global homography chain
         print("[INFO] Building global transforms...")
         global_H = {0: np.eye(3)}
         for i in range(1, len(imgs)):
             global_H[i] = global_H[i - 1] @ pairwise_H[(i - 1, i)]
 
-        # -----------------------------------
-        # Compute mosaic bounds
-        # -----------------------------------
+        # 4. Compute mosaic bounds
         print("[INFO] Computing mosaic canvas size...")
         all_corners = []
         for i, img in enumerate(imgs):
@@ -126,12 +134,9 @@ class ImageStitcher:
 
         width = xmax - xmin
         height = ymax - ymin
-
         print(f"[INFO] Canvas size = {width} x {height}")
 
-        # -----------------------------------
-        # Offset translation so mosaic fits
-        # -----------------------------------
+        # 5. Offset translation
         offsetH = np.array([
             [1, 0, -xmin],
             [0, 1, -ymin],
@@ -140,20 +145,21 @@ class ImageStitcher:
 
         final_H = {i: offsetH @ global_H[i] for i in range(len(imgs))}
 
-        # -----------------------------------
-        # Warp and blend all images
-        # -----------------------------------
-        print("[INFO] Warping and blending...")
-        mosaic = np.zeros((height, width, 3), dtype=np.uint8)
-
-        for i, img in enumerate(imgs):
-            warped = cv2.warpPerspective(img, final_H[i], (width, height))
-
-            # simple mask-based overwrite
-            mask = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-            _, mask = cv2.threshold(mask, 1, 255, cv2.THRESH_BINARY)
-
-            mosaic[mask == 255] = warped[mask == 255]
+        # 6. Warping and Laplacian Blending
+        print("[INFO] Warping and blending with Laplacian Pyramid...")
+        
+        # Start with the first image on the canvas
+        mosaic = cv2.warpPerspective(imgs[0], final_H[0], (width, height))
+        
+        for i in range(1, len(imgs)):
+            print(f"[INFO] Blending image {i+1}/{len(imgs)}...")
+            
+            warped_new = cv2.warpPerspective(imgs[i], final_H[i], (width, height))
+            
+            mask_new_gray = cv2.cvtColor(warped_new, cv2.COLOR_BGR2GRAY)
+            _, mask_new = cv2.threshold(mask_new_gray, 1, 255, cv2.THRESH_BINARY)
+            
+            mosaic = self.__laplacian_blend(mosaic, warped_new, mask_new, levels=4)
 
         self.__aerial_map = mosaic
         print("[INFO] Stitching complete.")
@@ -162,48 +168,89 @@ class ImageStitcher:
         """Returns composite aerial map"""
         return self.__aerial_map
 
+    # =========================================================
+    #  Laplacian Pyramid Helper Functions
+    # =========================================================
+
+    def __laplacian_blend(self, img1, img2, mask, levels=4):
+        """
+        Blends img1 and img2 using Laplacian Pyramids.
+        """
+        mask = mask.astype(np.float32) / 255.0
+        if len(mask.shape) == 2:
+            mask = cv2.merge([mask, mask, mask])
+
+        gp1 = self.__build_gaussian_pyramid(img1, levels)
+        gp2 = self.__build_gaussian_pyramid(img2, levels)
+        gpM = self.__build_gaussian_pyramid(mask, levels)
+
+        lp1 = self.__build_laplacian_pyramid(gp1)
+        lp2 = self.__build_laplacian_pyramid(gp2)
+
+        LS = []
+        
+        # FIX 4: Reverse gpM so it matches Laplacian order (Small -> Large)
+        for l1, l2, gm in zip(lp1, lp2, gpM[::-1]):
+            ls = l1 * (1.0 - gm) + l2 * gm
+            LS.append(ls)
+
+        ls_reconstruct = LS[0]
+        for i in range(1, len(LS)):
+            ls_reconstruct = cv2.pyrUp(ls_reconstruct)
+            h, w = LS[i].shape[:2]
+            ls_reconstruct = cv2.resize(ls_reconstruct, (w, h)) 
+            ls_reconstruct = cv2.add(ls_reconstruct, LS[i])
+
+        return np.clip(ls_reconstruct, 0, 255).astype(np.uint8)
+
+    def __build_gaussian_pyramid(self, img, levels):
+        gp = [img.astype(np.float32)]
+        for i in range(levels):
+            layer = cv2.pyrDown(gp[i])
+            gp.append(layer)
+        return gp
+
+    def __build_laplacian_pyramid(self, gp):
+        lp = [gp[-1]] 
+        for i in range(len(gp) - 1, 0, -1):
+            gaussian_expanded = cv2.pyrUp(gp[i])
+            h, w = gp[i-1].shape[:2]
+            gaussian_expanded = cv2.resize(gaussian_expanded, (w, h))
+            
+            laplacian = cv2.subtract(gp[i-1], gaussian_expanded)
+            lp.append(laplacian)
+        return lp
+
+
     # TODO: Implement - Daniel
     def __process_image(self, img):
-        """Preprocess the image for stitching: crop, grayscale, blur, histogram equalization"""
-        # Crop bottom 10% to remove drone legs or props and resize to reduce resolution and speed up processing
-        img = cv2.resize(img, None, fx=0.3, fy=0.3, interpolation=cv2.INTER_AREA)
+        """Preprocess the image: resize (using SCALE_FACTOR), crop, grayscale, blur, equalize"""
+        # Resize using the class constant
+        img = cv2.resize(img, None, fx=self.SCALE_FACTOR, fy=self.SCALE_FACTOR, interpolation=cv2.INTER_AREA)
         h = img.shape[0]
-        cropped = img[:int(h * 0.9), :]
+        cropped = img[:int(h * 0.9), :] # Crop bottom 10%
 
-        # Convert to grayscale
         gray = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)
-
-        # Apply Gaussian blur to reduce noise
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-
-        # Histogram equalization to improve contrast
         equalized = cv2.equalizeHist(blurred)
 
         return equalized
 
     # TODO: Implement - Gareth
     def __run_SIFT(self, img):
-        """Runs the SIFT algorithm and returns detected features"""
         keypoints = self.__sift.detect(img, None)
         keypoints, descriptors = self.__sift.compute(img, keypoints)
-
         return keypoints, descriptors
 
     # TODO: Implement - John
     def __run_kNN(self, keypoints1, descriptors1, keypoints2, descriptors2):
-        # Initialize Brute-Force matcher
         bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
-
-        # Find the 2 best matches for each feature
         matches = bf.knnMatch(descriptors1, descriptors2, k=2)
-
-        # Apply Lowe’s ratio test
         good_matches = [m for m, n in matches if m.distance < 0.75 * n.distance]
 
         if len(good_matches) < 4:
             return None, None, []
 
-        # Extract matching keypoint coordinates
         base_points = np.float32([keypoints1[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
         new_points = np.float32([keypoints2[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
 
@@ -214,12 +261,14 @@ class ImageStitcher:
     def __run_RANSAC(self, baseImagePoints, newImagePoints, img):
         return run_RANSAC(baseImagePoints, newImagePoints, img)
 
-    def __compute_homography(self, kpts1, kpts2, matches):
+    def __compute_homography(self, kpts1, kpts2, matches, ratio=1.0):
         if len(matches) < 4:
             return None
 
-        src_pts = np.float32([kpts1[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
-        dst_pts = np.float32([kpts2[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
+        # Extract points and apply ratio scale to match original image size
+        src_pts = np.float32([kpts1[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2) * ratio
+        dst_pts = np.float32([kpts2[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2) * ratio
 
-        H, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 4.0)
+        # Increased RANSAC threshold slightly to account for larger image scale
+        H, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
         return H
