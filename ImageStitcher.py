@@ -59,8 +59,8 @@ class ImageStitcher:
             warped_corners = cv2.perspectiveTransform(corners2, H)
             all_corners = np.concatenate((np.float32([[0,0],[0,h1],[w1,h1],[w1,0]]).reshape(-1,1,2),
                                         warped_corners), axis=0)
-            [xmin, ymin] = np.int32(all_corners.min(axis=0).ravel() - 0.5)
-            [xmax, ymax] = np.int32(all_corners.max(axis=0).ravel() + 0.5)
+            [xmin, ymin] = np.int32(np.floor(all_corners.min(axis=0).ravel()))
+            [xmax, ymax] = np.int32(np.ceil(all_corners.max(axis=0).ravel()))
 
             trans = [-xmin, -ymin]
             H_trans = np.array([[1,0,trans[0]],[0,1,trans[1]],[0,0,1]])
@@ -74,9 +74,27 @@ class ImageStitcher:
             shifted_base = np.zeros((warp_height, warp_width, 3), dtype=self.__aerial_map.dtype)
             shifted_base[trans[1]:h1+trans[1], trans[0]:w1+trans[0]] = self.__aerial_map
 
-            # Create masks for blending
-            mask_new = cv2.cvtColor(warped_img, cv2.COLOR_BGR2GRAY)
+            # --- START FIX ---
+            # Create a "white" image of the same size as the input frame to determine geometry
+            white_img = np.ones((h2, w2), dtype=np.uint8) * 255
+
+            # Warp the white image using the exact same transform
+            mask_new = cv2.warpPerspective(white_img, H_trans.dot(H), (warp_width, warp_height))
+            
+            # Threshold the warped white image (handles soft edges from interpolation)
             _, mask_new = cv2.threshold(mask_new, 1, 255, cv2.THRESH_BINARY)
+            
+            # --- CHANGE 1: Erode mask to remove the "Crease" (black edge artifacts) ---
+            kernel = np.ones((3, 3), np.uint8)
+            mask_new = cv2.erode(mask_new, kernel, iterations=1)
+            # --------------------------------------------------------------------------
+
+            # --- CHANGE 2: Calculate levels dynamically based on size ---
+            min_dim = min(warp_width, warp_height)
+            # Ensure we don't go deeper than the image size allows (down to ~16px)
+            max_possible_levels = int(np.log2(min_dim)) - 4 
+            dynamic_levels = max(1, min(4, max_possible_levels))
+            # -----------------------------------------------------------
             
             # Use Laplacian Blending
             self.__aerial_map = self.__laplacian_blend(shifted_base, warped_img, mask_new)
@@ -160,8 +178,17 @@ class ImageStitcher:
             
             mask_new_gray = cv2.cvtColor(warped_new, cv2.COLOR_BGR2GRAY)
             _, mask_new = cv2.threshold(mask_new_gray, 1, 255, cv2.THRESH_BINARY)
+
+            # --- CHANGE 1: Erode ---
+            kernel = np.ones((3, 3), np.uint8)
+            mask_new = cv2.erode(mask_new, kernel, iterations=1)
             
-            mosaic = self.__laplacian_blend(mosaic, warped_new, mask_new, levels=4)
+            # --- CHANGE 2: Dynamic Levels ---
+            min_dim = min(width, height)
+            max_possible_levels = int(np.log2(min_dim)) - 4
+            dynamic_levels = max(1, min(4, max_possible_levels))
+            
+            mosaic = self.__laplacian_blend(mosaic, warped_new, mask_new, levels=2)
 
         self.__aerial_map = mosaic
         print("[INFO] Stitching complete.")
@@ -174,7 +201,7 @@ class ImageStitcher:
     #  Laplacian Pyramid Helper Functions
     # =========================================================
 
-    def __laplacian_blend(self, img1, img2, mask, levels=4):
+    def __laplacian_blend(self, img1, img2, mask, levels=2):
         """
         Blends img1 and img2 using Laplacian Pyramids.
         """
