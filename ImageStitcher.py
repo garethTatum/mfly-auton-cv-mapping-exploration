@@ -18,7 +18,8 @@ class ImageStitcher:
     def __init__(self):
         """Initialize ImageStitcher class with default values. Contains a composite image (the map)"""
         self.__aerial_map = None
-        self.__sift = cv2.SIFT_create()
+        # self.__sift = cv2.SIFT_create()
+        self.__detector = cv2.AKAZE_create(threshold=0.0005)
         self.__initialized = False
         pass
 
@@ -31,8 +32,8 @@ class ImageStitcher:
         else:
             # Running through preprocessing, SIFT, kNN, and RANSAC
             processed_img = self.__process_image(img)
-            kpB, desB = self.__run_SIFT(self.__aerial_map) # Note: aerial_map might be huge, consider resizing it too if this is slow
-            kpN, desN = self.__run_SIFT(processed_img)
+            kpB, desB = self.__detect_features(self.__aerial_map) # Note: aerial_map might be huge, consider resizing it too if this is slow
+            kpN, desN = self.__detect_features(processed_img)
 
             basePoints, newPoints,_ = self.__run_kNN(kpB, desB, kpN, desN)
             
@@ -108,7 +109,7 @@ class ImageStitcher:
         # 1. Feature Detection
         for img in imgs:
             processed_img = self.__process_image(img)
-            kp, desc = self.__run_SIFT(processed_img)
+            kp, desc = self.__detect_features(processed_img)
             keypoints.append(kp)
             descriptors.append(desc)
 
@@ -279,11 +280,23 @@ class ImageStitcher:
         keypoints, descriptors = self.__sift.compute(img, keypoints)
         return keypoints, descriptors
 
+    def __detect_features(self, img):
+        # AKAZE works best on grayscale, though it handles color too.
+        # Ensure we are passing the processed (grayscale/equalized) image.
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img
+            
+        keypoints, descriptors = self.__detector.detectAndCompute(gray, None)
+        return keypoints, descriptors
+
     # TODO: Implement - John
     def __run_kNN(self, keypoints1, descriptors1, keypoints2, descriptors2):
-        bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
+        # bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
+        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
         matches = bf.knnMatch(descriptors1, descriptors2, k=2)
-        good_matches = [m for m, n in matches if m.distance < 0.75 * n.distance]
+        good_matches = [m for m, n in matches if m.distance < 0.8 * n.distance]
 
         if len(good_matches) < 4:
             return None, None, []
