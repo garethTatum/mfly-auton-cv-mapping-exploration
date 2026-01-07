@@ -35,21 +35,19 @@ class ImageStitcher:
             kpB, desB = self.__detect_features(self.__aerial_map) # Note: aerial_map might be huge, consider resizing it too if this is slow
             kpN, desN = self.__detect_features(processed_img)
 
-            basePoints, newPoints,_ = self.__run_kNN(kpB, desB, kpN, desN)
+            newPoints, basePoints, _ = self.__run_kNN(kpN, desN, kpB, desB)
             
             # FIX 1: Scale points back up to original size
             if basePoints is not None:
-                basePoints = basePoints * (1.0 / self.SCALE_FACTOR)
+                # basePoints = basePoints * (1.0 / self.SCALE_FACTOR)
                 newPoints = newPoints * (1.0 / self.SCALE_FACTOR)
 
             # H = self.__run_RANSAC(basePoints, newPoints, processed_img)
-            H = self.__compute_homography_magsac(basePoints, newPoints)
+            H = self.__compute_homography_magsac(newPoints, basePoints)
 
             if H is None:
                 print("[WARNING] Could not find homography for add_image")
                 return
-
-            H = np.linalg.inv(H)
 
             # Create canvas for Aerial Map
             h1, w1 = self.__aerial_map.shape[:2]
