@@ -41,7 +41,8 @@ class ImageStitcher:
                 basePoints = basePoints * (1.0 / self.SCALE_FACTOR)
                 newPoints = newPoints * (1.0 / self.SCALE_FACTOR)
 
-            H = self.__run_RANSAC(basePoints, newPoints, processed_img)
+            # H = self.__run_RANSAC(basePoints, newPoints, processed_img)
+            H = self.__compute_homography_magsac(basePoints, newPoints)
 
             if H is None:
                 print("[WARNING] Could not find homography for add_image")
@@ -120,13 +121,20 @@ class ImageStitcher:
             basepts, newpts, matches = self.__run_kNN(keypoints[i], descriptors[i], keypoints[i+1], descriptors[i+1])
             
             # FIX 3: Pass the scale ratio to compute_homography
-            H = self.__compute_homography(keypoints[i], keypoints[i+1], matches, ratio=(1.0/self.SCALE_FACTOR))
-
+            # H = self.__compute_homography(keypoints[i], keypoints[i+1], matches, ratio=(1.0/self.SCALE_FACTOR))
+            H = None # Default to None
+            
+            if basepts is not None and len(basepts) >= 4:
+                ratio = 1.0 / self.SCALE_FACTOR
+                src_pts = basepts * ratio
+                dst_pts = newpts * ratio
+                H = self.__compute_homography_magsac(src_pts, dst_pts)
+                
             if H is not None:
                 # Store Inverse to map backwards to the first image
                 pairwise_H[(i, i + 1)] = np.linalg.inv(H)
             else:
-                raise RuntimeError(f"Insufficient matches between {i} and {i+1}")
+                pairwise_H[(i, i + 1)] = np.eye(3)
             
         # 3. Build global homography chain
         print("[INFO] Building global transforms...")
@@ -289,6 +297,29 @@ class ImageStitcher:
     # TODO: Implement - Raiana
     def __run_RANSAC(self, baseImagePoints, newImagePoints, img):
         return run_RANSAC(baseImagePoints, newImagePoints, img)
+
+
+    def __compute_homography_magsac(self, src_pts, dst_pts):
+        """
+        Computes Homography using USAC_MAGSAC (MAGSAC++).
+        This is much more robust to outliers and elevation parallax than standard RANSAC.
+        """
+        if len(src_pts) < 4:
+            return None
+        
+        # USAC_MAGSAC is built into OpenCV 4.5+
+        # Threshold=5.0 is a good starting point for pixels
+        H, mask = cv2.findHomography(src_pts, dst_pts, cv2.USAC_MAGSAC, 5.0)
+        
+        # Safety Check: Discard invalid Homographies (e.g., collapsed to a line)
+        if H is not None:
+            # Check determinant (scale factor). If it's too tiny or huge, it's a bad warp.
+            det = np.linalg.det(H[:2, :2])
+            if det < 0.01 or det > 100:
+                print("[WARNING] MAGSAC found a bad homography (extreme distortion). Ignoring.")
+                return None
+                
+        return H
 
     def __compute_homography(self, kpts1, kpts2, matches, ratio=1.0):
         if len(matches) < 4:
