@@ -99,6 +99,59 @@ class ImageStitcher:
             # Use Laplacian Blending
             self.__aerial_map = self.__laplacian_blend(shifted_base, warped_img, mask_new)
 
+    # Code for cropping bounding box before laplacian blend to reduce memory usage
+    def __overlap_bbox(self, mask):
+        """
+        mask: uint8 binary mask (0 or 255)
+        returns: (x0, y0, x1, y1) inclusive-exclusive
+        """
+        ys, xs = np.where(mask > 0)
+        if len(xs) == 0:
+            return None
+        x0, x1 = xs.min(), xs.max() + 1
+        y0, y1 = ys.min(), ys.max() + 1
+        return x0, y0, x1, y1
+    
+    def __laplacian_blend_roi(self, base, new, mask, levels=2, pad=16):
+        """
+        base, new: uint8 BGR images (same size)
+        mask: uint8 binary mask (255 = use new)
+        pad: extra pixels around overlap for smoothness
+        """
+
+        bbox = self.__overlap_bbox(mask)
+        if bbox is None:
+            return base
+
+        x0, y0, x1, y1 = bbox
+
+        # Expand bbox slightly (avoid hard edges)
+        h, w = mask.shape
+        x0 = max(0, x0 - pad)
+        y0 = max(0, y0 - pad)
+        x1 = min(w, x1 + pad)
+        y1 = min(h, y1 + pad)
+
+        # Extract ROI
+        base_roi = base[y0:y1, x0:x1]
+        new_roi  = new[y0:y1, x0:x1]
+        mask_roi = mask[y0:y1, x0:x1]
+
+        # Convert once to float32
+        base_roi = base_roi.astype(np.float32)
+        new_roi  = new_roi.astype(np.float32)
+        mask_roi = (mask_roi.astype(np.float32) / 255.0)
+
+        # Blend only ROI
+        blended_roi = self.__laplacian_blend(
+            base_roi, new_roi, mask_roi, levels=levels
+        )
+
+        # Paste back
+        result = base.copy()
+        result[y0:y1, x0:x1] = np.clip(blended_roi, 0, 255).astype(np.uint8)
+
+        return result
 
     def stitch_images(self, imgs):
         keypoints = []
@@ -194,8 +247,22 @@ class ImageStitcher:
             min_dim = min(width, height)
             max_possible_levels = int(np.log2(min_dim)) - 4
             dynamic_levels = max(1, min(4, max_possible_levels))
+
+            # Binary mask where warped_new is valid
+            valid_mask = (mask_new > 0)
+
+            # Binary mask where mosaic already has content
+            mosaic_gray = cv2.cvtColor(mosaic, cv2.COLOR_BGR2GRAY)
+            mosaic_valid = (mosaic_gray > 0)
+
+            # Non-overlap: new image only
+            non_overlap = valid_mask & (~mosaic_valid)
+
+            # Paste directly
+            mosaic[non_overlap] = warped_new[non_overlap]
             
-            mosaic = self.__laplacian_blend(mosaic, warped_new, mask_new, levels=2)
+            # mosaic = self.__laplacian_blend(mosaic, warped_new, mask_new, levels=2)
+            mosaic = self.__laplacian_blend_roi(mosaic, warped_new, mask_new, levels=2)
 
         self.__aerial_map = mosaic
         print("[INFO] Stitching complete.")
