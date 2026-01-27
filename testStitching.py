@@ -6,9 +6,8 @@ from ImageStitcher import ImageStitcher
 import time
 import os
 
-directory = "images/small"
+directory = "images/houses"
 
-# TODO: Use opencv for realtime image stitching
 if __name__ == "__main__":
     stitcher = ImageStitcher()
 
