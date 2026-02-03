@@ -105,7 +105,7 @@ class ImageStitcher:
         y0, y1 = ys.min(), ys.max() + 1
         return x0, y0, x1, y1
 
-    def stitch_images(self, imgs):
+    def stitch_images(self, imgs, resize=False, downsample_percent=0.5):
         """
         Stitch all images in a list
         """
@@ -113,8 +113,11 @@ class ImageStitcher:
         descriptors = []
 
         # Feature Detection
-        for img in imgs:
-            processed_img = self.__process_image(img)
+        for i in range(len(imgs)):
+            if resize:
+                imgs[i] = cv2.resize(imgs[i], None, fx=downsample_percent, fy=downsample_percent, interpolation=cv2.INTER_AREA)
+        
+            processed_img = self.__process_image(imgs[i])
             kp, desc = self.__detect_features(processed_img)
             keypoints.append(kp)
             descriptors.append(desc)
@@ -287,6 +290,10 @@ class ImageStitcher:
         lp1 = self.__build_laplacian_pyramid(gp1)
         lp2 = self.__build_laplacian_pyramid(gp2)
 
+        # Frees up memory
+        del gp1, gp2
+        gc.collect
+
         LS = []
         
         # Reverse gpM so it matches Laplacian order (Small -> Large)
@@ -294,6 +301,9 @@ class ImageStitcher:
             ls = l1 * (1.0 - gm) + l2 * gm
             LS.append(ls)
 
+        # Frees up memory
+        del lp1, lp2, gpM
+        gc.collect
 
         ls_reconstruct = LS[0]
         for i in range(1, len(LS)):
@@ -301,10 +311,6 @@ class ImageStitcher:
             h, w = LS[i].shape[:2]
             ls_reconstruct = cv2.resize(ls_reconstruct, (w, h)) 
             ls_reconstruct = cv2.add(ls_reconstruct, LS[i])
-
-        # Frees up memory
-        del gp1, gp2, lp1, lp2, gpM
-        gc.collect
 
         return np.clip(ls_reconstruct, 0, 255).astype(np.uint8)
 
