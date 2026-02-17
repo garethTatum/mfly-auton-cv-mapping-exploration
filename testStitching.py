@@ -2,11 +2,11 @@
 # Runs the camera and takes the image, then calls image_stitcher
 import cv2
 import numpy as np
-from ImageStitcher import ImageStitcher
+from multithreading import ImageStitcher
 import time
 import os
 
-directory = "images/Portion"
+directory = "images/4thAve"
 
 if __name__ == "__main__":
     stitcher = ImageStitcher()
@@ -21,6 +21,6 @@ if __name__ == "__main__":
             img = cv2.imread(directory + "/" + image)
             imgs.append(img)
 
-    stitcher.stitch_images(imgs, resize=True, downsample_percent=0.4)
+    stitcher.run_test_small(imgs, downsample=0.4)
     map = stitcher.get_map()
-    cv2.imwrite(os.path.join(directory, 'aerial_map.png'), map)
+    cv2.imwrite(os.path.join(directory, 'aerial_map_multi_roi_blended.png'), map)
