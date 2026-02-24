@@ -25,17 +25,22 @@ import threading
 from RANSAC import run_RANSAC
 import gc
 
+# Thread pooling
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 class ImageStitcher:
 
     SCALE_FACTOR = 0.4
 
     def __init__(self, max_threads=2): # change later - kept 2 so my WSL doesn't crash for testing
         self.__aerial_map = None
+        self.__mosaics = []
         self.__initialized = False
 
         # Threading controls
         self.thread_limit = threading.Semaphore(max_threads)
         self.aerial_map_lock = threading.Lock()
+        self.mosaic_lock = threading.Lock()
         
     
     # TESTING SMALL SAMPLE
@@ -55,30 +60,44 @@ class ImageStitcher:
         half1 = images[:len(images)//2]
         half2 = images[len(images)//2:]
 
-        buffer1, buffer2 = [], []
-        ready1 = threading.Event()
-        ready2 = threading.Event()
+        # buffer1, buffer2 = [], []
+        # ready1 = threading.Event()
+        # ready2 = threading.Event()
 
-        t1 = threading.Thread(
-            target=self._half_pass_worker,
-            args=(half1, buffer1, ready1)
-        )
-        t2 = threading.Thread(
-            target=self._half_pass_worker,
-            args=(half2, buffer2, ready2)
-        )
+        # t1 = threading.Thread(
+        #     target=self._half_pass_worker,
+        #     args=(half1, buffer1, ready1)
+        # )
+        # t2 = threading.Thread(
+        #     target=self._half_pass_worker,
+        #     args=(half2, buffer2, ready2)
+        # )
 
-        t1.start()
-        t2.start()
+        # t1.start()
+        # t2.start()
 
-        ready1.wait()
-        self._stitch_half_pass(buffer1)
+        # ready1.wait()
+        # self._stitch_half_pass(buffer1)
 
-        ready2.wait()
-        self._stitch_half_pass(buffer2)
+        # ready2.wait()
+        # self._stitch_half_pass(buffer2)
 
-        t1.join()
-        t2.join()
+        # t1.join()
+        # t2.join()
+
+        with ThreadPoolExecutor(max_workers=self.thread_limit._value) as executor:
+            futures = [
+                executor.submit(self._half_pass_worker_pooling, half1),
+                executor.submit(self._half_pass_worker_pooling, half2),
+            ]
+
+        for future in as_completed(futures):
+            buffer = future.result()
+            self._stitch_half_pass(buffer)
+        
+        # Stitch the two halves together
+        if len(self.__mosaics) == 2:
+            self.stitch_images(self.__mosaics)
 
 
     # MULTITHREADING CONTROL SYSTEM THINGY
@@ -87,10 +106,11 @@ class ImageStitcher:
         """
         Expects 4 passes X 36 images = 144 images total
         """
-        assert len(all_images) == 144
+        # assert len(all_images) == 144
 
         passes = [
-            all_images[i * 36:(i + 1) * 36]
+            # all_images[i * 36:(i + 1) * 36]
+            all_images[i*4:(i+1)*4]
             for i in range(4)
         ]
 
@@ -107,10 +127,10 @@ class ImageStitcher:
         """
         One pass = two half-passes of 18 images like in notes
         """
-        assert len(pass_images) == 36
+        # assert len(pass_images) == 36
 
-        half1 = pass_images[:18]
-        half2 = pass_images[18:]
+        half1 = pass_images[:2]
+        half2 = pass_images[2:]
 
         buffer1, buffer2 = [], []
         ready1 = threading.Event()
@@ -148,6 +168,19 @@ class ImageStitcher:
                 output_buffer.append((img, processed, kp, desc))
 
             ready_event.set()
+
+    def _half_pass_worker_pooling(self, images):
+        """
+        Preprocess + detect features for one half-pass
+        """
+        output_buffer = []
+        with self.thread_limit:
+            for img in images:
+                processed = self.__process_image(img)
+                kp, desc = self.__detect_features_threadsafe(processed)
+                output_buffer.append((img, processed, kp, desc))
+
+            return output_buffer
 
     def _stitch_half_pass(self, buffer):
         imgs = [item[0] for item in buffer]
@@ -259,7 +292,7 @@ class ImageStitcher:
             del warped_new, mask_new
             gc.collect()
 
-        self.__aerial_map = mosaic
+        self.__mosaics.append(mosaic)
 
     # INPUT STUFF
 
@@ -388,3 +421,6 @@ class ImageStitcher:
 
     def get_map(self):
         return self.__aerial_map
+
+    def get_mosaics(self):
+        return self.__mosaics

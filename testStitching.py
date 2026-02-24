@@ -6,7 +6,7 @@ from multithreading import ImageStitcher
 import time
 import os
 
-directory = "images/4thAve"
+directory = "images/portion"
 
 if __name__ == "__main__":
     stitcher = ImageStitcher()
@@ -17,10 +17,12 @@ if __name__ == "__main__":
 
     for image in sorted_files:
         # check if the image ends with jpg
-        if (image.lower().endswith(".jpg")):
+        if (image.lower().endswith(".jpg") or image.lower().endswith(".jpeg")):
             img = cv2.imread(directory + "/" + image)
             imgs.append(img)
 
     stitcher.run_test_small(imgs, downsample=0.4)
-    map = stitcher.get_map()
-    cv2.imwrite(os.path.join(directory, 'aerial_map_multi_roi_blended.png'), map)
+    map = stitcher.get_mosaics()
+
+    for i in range(len(map)):
+        cv2.imwrite(os.path.join(directory, 'aerial_map_multi_roi_blended_' + str(i) + '.png'), map[i])
